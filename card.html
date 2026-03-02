@@ -156,11 +156,15 @@
       badge.textContent = "祝你生日快乐 🎉";
     }
 
-    img.src = `cards/${decodeURIComponent(slug)}.jpg`;
-
-    // 图片加载失败提示
-    img.addEventListener("error", () => {
-      badge.textContent = "图片未找到：请检查 cards/ 下文件名是否与 slug 完全一致（含大小写与后缀）";
+    // 尝试 jpg，失败则尝试 png
+    const slugDecoded = decodeURIComponent(slug);
+    img.src = `cards/${slugDecoded}.jpg`;
+    img.addEventListener("error", function onErr() {
+      img.removeEventListener("error", onErr);
+      img.src = `cards/${slugDecoded}.png`;
+      img.addEventListener("error", () => {
+        badge.textContent = "图片未找到：请检查 cards/ 下文件名是否与 slug 完全一致（含大小写与后缀）";
+      });
     });
 
     function play(){ audio.play().catch(()=>{}); }
