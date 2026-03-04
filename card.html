@@ -109,18 +109,65 @@
       line-height:1.6;
     }
     a{color:rgba(255,255,255,.78); text-decoration:none; border-bottom:1px dashed rgba(255,255,255,.25);}
+
+    /* 微信专用：全屏点击蒙层，引导用户触摸以解锁音频 */
+    #wx-mask{
+      display:none;
+      position:fixed;
+      inset:0;
+      z-index:999;
+      background:rgba(0,0,0,.72);
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:16px;
+      cursor:pointer;
+    }
+    #wx-mask.show{ display:flex; }
+    #wx-mask .icon{ font-size:52px; animation: pulse 1.2s ease-in-out infinite; }
+    #wx-mask .hint{ color:#fff; font-size:18px; font-weight:600; letter-spacing:.5px; }
+    #wx-mask .hint2{ color:rgba(255,255,255,.7); font-size:13px; }
+    @keyframes pulse{
+      0%,100%{ transform:scale(1); }
+      50%{ transform:scale(1.12); }
+    }
+
+    /* 播放状态指示器 */
+    #music-status{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      font-size:12px;
+      color:rgba(255,255,255,.5);
+      margin-left:4px;
+    }
+    #music-status .dot{
+      width:7px; height:7px;
+      border-radius:50%;
+      background:rgba(255,255,255,.3);
+      transition:.3s background;
+    }
+    #music-status.playing .dot{ background:#4ade80; animation: blink 1s ease-in-out infinite; }
+    @keyframes blink{ 0%,100%{opacity:1} 50%{opacity:.4} }
   </style>
 </head>
 <body>
+
+  <!-- 微信专用引导蒙层（点击任意处播放音乐） -->
+  <div id="wx-mask" onclick="unlockByMask()">
+    <div class="icon">🎵</div>
+    <div class="hint">点击任意处开启音乐</div>
+    <div class="hint2">微信限制网页自动播放，轻触即可</div>
+  </div>
+
   <div class="wrap">
     <div class="header">
       <div>
-        <h2 class="title" id="ttl">生日快乐 🎉</h2>
-        <p class="sub">如未自动播放音乐，请点「播放音乐」（浏览器限制属于正常现象）。</p>
+        <h2 class="title" id="ttl">节日快乐 🎉</h2>
+        <p class="sub" id="sub-tip">祝你女神节快乐！</p>
       </div>
       <div class="controls">
-        <button class="btn" onclick="play()">播放音乐</button>
-        <button class="btn" onclick="pause()">暂停</button>
+        <button class="btn" id="playBtn" onclick="togglePlay()">节日快乐</button>
         <button class="btn" onclick="back()">返回解锁页</button>
       </div>
     </div>
@@ -130,50 +177,130 @@
       <div class="badge" id="badge"></div>
     </div>
 
-    <div class="tip">图片路径：<code>cards/&lt;slug&gt;.jpg</code> ｜ 音乐路径：<code>assets/bgm.mp3</code></div>
+    <div class="tip">
+      <span id="music-status"><span class="dot"></span></span>
+      图片路径：<code>cards/&lt;slug&gt;.jpg</code> ｜ 音乐路径：<code>assets/bgm.mp3</code>
+    </div>
 
     <audio id="bgm" src="assets/bgm.mp3" loop preload="auto"></audio>
   </div>
 
   <script>
+    // ── 工具函数 ──────────────────────────────────────────
     function param(key){
-      const u = new URL(window.location.href);
-      return u.searchParams.get(key) || "";
+      return new URL(window.location.href).searchParams.get(key) || "";
     }
 
-    const slug = param("who");
-    const name = param("name");
+    // 判断是否在微信内置浏览器
+    function isWeChat(){
+      return /MicroMessenger/i.test(navigator.userAgent);
+    }
 
-    const img = document.getElementById("cardImg");
-    const badge = document.getElementById("badge");
-    const ttl = document.getElementById("ttl");
-    const audio = document.getElementById("bgm");
+    // ── DOM 引用 ──────────────────────────────────────────
+    const slug    = param("who");
+    const name    = param("name");
+    const img     = document.getElementById("cardImg");
+    const badge   = document.getElementById("badge");
+    const ttl     = document.getElementById("ttl");
+    const subTip  = document.getElementById("sub-tip");
+    const audio   = document.getElementById("bgm");
+    const playBtn = document.getElementById("playBtn");
+    const status  = document.getElementById("music-status");
+    const wxMask  = document.getElementById("wx-mask");
 
-    if (name){
-      ttl.textContent = `${decodeURIComponent(name)}，生日快乐 🎉`;
-      badge.textContent = `To: ${decodeURIComponent(name)}`;
+    // ── 初始化页面内容 ────────────────────────────────────
+    const displayName = name ? decodeURIComponent(name) : "";
+    if (displayName){
+      ttl.textContent   = `${displayName}，节日快乐 🎉`;
+      badge.textContent = `To: ${displayName}`;
+      subTip.textContent = `祝 ${displayName} 女神节快乐！`;
     } else {
-      badge.textContent = "祝你生日快乐 🎉";
+      badge.textContent = "祝你女神节快乐 🎉";
     }
 
-    // 尝试 jpg，失败则尝试 png
+    // ── 贺卡图片加载（支持 jpg / png）────────────────────
     const slugDecoded = decodeURIComponent(slug);
     img.src = `cards/${slugDecoded}.jpg`;
-    img.addEventListener("error", function onErr() {
+    img.addEventListener("error", function onErr(){
       img.removeEventListener("error", onErr);
       img.src = `cards/${slugDecoded}.png`;
       img.addEventListener("error", () => {
-        badge.textContent = "图片未找到：请检查 cards/ 下文件名是否与 slug 完全一致（含大小写与后缀）";
+        badge.textContent = "图片未找到，请检查 cards/ 目录下文件名";
       });
     });
 
-    function play(){ audio.play().catch(()=>{}); }
-    function pause(){ audio.pause(); }
+    // ── 音频播放状态同步 ──────────────────────────────────
+    function syncStatus(){
+      if (audio.paused){
+        status.classList.remove("playing");
+        playBtn.textContent = "播放音乐 ▶";
+      } else {
+        status.classList.add("playing");
+        playBtn.textContent = "暂停音乐 ⏸";
+      }
+    }
+    audio.addEventListener("play",  syncStatus);
+    audio.addEventListener("pause", syncStatus);
+    audio.addEventListener("ended", syncStatus);
+
+    // ── 播放 / 暂停切换 ───────────────────────────────────
+    function togglePlay(){
+      if (audio.paused){
+        audio.play().catch(()=>{});
+      } else {
+        audio.pause();
+      }
+    }
+
     function back(){ window.location.href = "index.html"; }
 
-    // 尝试自动播放（可能被拦截，用户点击播放按钮即可）
-    window.addEventListener("load", () => {
+    // ── 微信专用：蒙层点击解锁音频 ───────────────────────
+    function unlockByMask(){
+      wxMask.classList.remove("show");
       audio.play().catch(()=>{});
+    }
+
+    // ── 微信专用：WeixinJSBridgeReady 事件 ───────────────
+    // 微信在 WeixinJSBridgeReady 后才允许播放音频
+    function tryPlayInWeChat(){
+      if (typeof WeixinJSBridge !== "undefined"){
+        WeixinJSBridge.invoke("getNetworkType", {}, function(){
+          audio.play().catch(()=>{
+            // 仍然失败则显示引导蒙层
+            wxMask.classList.add("show");
+          });
+        });
+      } else {
+        document.addEventListener("WeixinJSBridgeReady", function(){
+          audio.play().catch(()=>{
+            wxMask.classList.add("show");
+          });
+        }, false);
+        // 超时后显示蒙层（非微信环境兜底）
+        setTimeout(()=>{
+          if (audio.paused) wxMask.classList.add("show");
+        }, 2000);
+      }
+    }
+
+    // ── 启动逻辑 ──────────────────────────────────────────
+    window.addEventListener("load", () => {
+      if (isWeChat()){
+        // 微信环境：走 WeixinJSBridge 流程
+        tryPlayInWeChat();
+      } else {
+        // 普通浏览器：直接尝试自动播放
+        audio.play().catch(()=>{
+          // 被拦截则监听首次用户交互
+          const unlock = () => {
+            audio.play().catch(()=>{});
+            document.removeEventListener("touchstart", unlock);
+            document.removeEventListener("click", unlock);
+          };
+          document.addEventListener("touchstart", unlock, { once: true });
+          document.addEventListener("click",      unlock, { once: true });
+        });
+      }
     });
   </script>
 </body>
